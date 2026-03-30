@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../supabaseClient'; // Supabase import kiya
 import { Trophy, Plus, CreditCard, HeartHandshake, Gift, Target } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -11,41 +12,61 @@ export default function Dashboard() {
     const [charity, setCharity] = useState('');
     const [winnings, setWinnings] = useState(0);
 
-    // Load from local storage on mount (Mocking Supabase DB for demo reliability)
+    // 1. Load Data from Supabase
     useEffect(() => {
         if (user) {
-            const storedScores = JSON.parse(localStorage.getItem(`scores_${user.id}`)) || [];
-            setScores(storedScores);
-
-            // Get charity from user metadata (Supabase stores this during signup if we used options.data)
+            fetchUserScores();
+            
+            // User metadata se charity uthayenge
             const userCharity = user.user_metadata?.charity_selected || 'Cancer Foundation';
             setCharity(userCharity);
         }
     }, [user]);
 
-    const handleAddScore = (e) => {
+    const fetchUserScores = async () => {
+        const { data, error } = await supabase
+            .from('scores') // 'scores' naam ki table honi chahiye
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(5);
+
+        if (error) {
+            console.error("Error fetching scores:", error);
+        } else {
+            setScores(data || []);
+        }
+    };
+
+    // 2. Add Score to Supabase
+    const handleAddScore = async (e) => {
         e.preventDefault();
-        if (!newScore || Array.isNaN(parseInt(newScore))) {
+        if (!newScore || isNaN(parseInt(newScore))) {
             toast.error('Invalid score');
             return;
         }
 
-        const scoreEntry = {
-            id: Date.now().toString(),
-            value: parseInt(newScore),
-            date: new Date().toLocaleDateString()
-        };
+        const scoreValue = parseInt(newScore);
 
-        // Keep max 5 scores, delete oldest
-        let updatedScores = [scoreEntry, ...scores];
-        if (updatedScores.length > 5) {
-            updatedScores = updatedScores.slice(0, 5);
+        const { data, error } = await supabase
+            .from('scores')
+            .insert([
+                { 
+                    user_id: user.id, 
+                    value: scoreValue,
+                    date: new Date().toLocaleDateString() 
+                }
+            ])
+            .select();
+
+        if (error) {
+            toast.error('Database error: ' + error.message);
+        } else {
+            // Local state update karo taaki turant dikhe
+            setScores(prev => [data[0], ...prev].slice(0, 5));
+            setNewScore('');
+            toast.success('Score saved to Supabase!');
         }
-
-        setScores(updatedScores);
-        setNewScore('');
-        localStorage.setItem(`scores_${user.id}`, JSON.stringify(updatedScores));
-        toast.success('Score added successfully');
     };
 
     const handleSubscribe = () => {
@@ -64,6 +85,7 @@ export default function Dashboard() {
             </div>
 
             <div className="grid md:grid-cols-4 gap-6 mb-8">
+                {/* Subscription Card */}
                 <div className="card">
                     <div className="flex justify-between items-start mb-4">
                         <div style={{ background: 'rgba(16, 185, 129, 0.1)', padding: '0.75rem', borderRadius: '12px' }}>
@@ -86,6 +108,7 @@ export default function Dashboard() {
                     </button>
                 </div>
 
+                {/* Charity Card */}
                 <div className="card">
                     <div className="flex justify-between items-start mb-4">
                         <div style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '0.75rem', borderRadius: '12px' }}>
@@ -97,6 +120,7 @@ export default function Dashboard() {
                     <p className="text-xs text-muted mt-2">10% of subscription donated</p>
                 </div>
 
+                {/* Winnings Card */}
                 <div className="card">
                     <div className="flex justify-between items-start mb-4">
                         <div style={{ background: 'rgba(245, 158, 11, 0.1)', padding: '0.75rem', borderRadius: '12px' }}>
@@ -108,6 +132,7 @@ export default function Dashboard() {
                     <p className="text-xs text-muted mt-2">From Monthly Draws</p>
                 </div>
 
+                {/* Draw Status Card */}
                 <div className="card" style={{ background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(14, 165, 233, 0.1))', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
                     <div className="flex justify-between items-start mb-4">
                         <div style={{ background: 'rgba(255, 255, 255, 0.1)', padding: '0.75rem', borderRadius: '12px' }}>
@@ -146,7 +171,7 @@ export default function Dashboard() {
                         </button>
                     </form>
                     <div className="alert alert-success text-sm">
-                        You can keep a maximum of 5 scores. The oldest will be replaced automatically.
+                        Scores are now saved securely in our cloud database.
                     </div>
                 </div>
 
@@ -155,7 +180,7 @@ export default function Dashboard() {
                     <h2 className="text-xl font-bold mb-4">Recent Scores</h2>
                     {scores.length === 0 ? (
                         <div className="text-center py-8 text-muted border border-dashed border-[rgba(255,255,255,0.1)] rounded-lg">
-                            No scores recorded yet. Submit your first score!
+                            No scores recorded in Supabase yet.
                         </div>
                     ) : (
                         <div className="table-container">
@@ -170,13 +195,13 @@ export default function Dashboard() {
                                 <tbody>
                                     {scores.map((score, index) => (
                                         <tr key={score.id}>
-                                            <td>{score.date}</td>
+                                            <td>{new Date(score.created_at || Date.now()).toLocaleDateString()}</td>
                                             <td className="font-bold text-lg">{score.value}</td>
                                             <td className="text-right">
                                                 {index === 0 ? (
                                                     <span className="badge badge-success text-xs">Latest</span>
                                                 ) : (
-                                                    <span className="badge badge-gray text-xs">Logged</span>
+                                                    <span className="badge badge-gray text-xs">Cloud</span>
                                                 )}
                                             </td>
                                         </tr>
